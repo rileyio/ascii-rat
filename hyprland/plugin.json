@@ -1,0 +1,15 @@
+{
+  "id": "asciiRat",
+  "name": "ASCII Rat",
+  "description": "ASCII Rat bar widget - click the rat to materialize it in a browser window",
+  "version": "1.0.0",
+  "license": "MIT",
+  "author": "rileyio",
+  "icon": "pets",
+  "component": "AsciiRatWidget.qml",
+  "settings": "AsciiRatSettings.qml",
+  "permissions": [
+    "settings_read",
+    "settings_write"
+  ]
+}
