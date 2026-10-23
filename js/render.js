@@ -150,6 +150,7 @@ function toggleHelp() {
       helpContent.style.opacity = "1";
       helpContent.style.transform = "translateY(0)";
     });
+    trapFocus(helpOverlay.querySelector(".modal"));
   } else {
     helpContent.style.opacity = "";
     helpContent.style.transform = "";

@@ -27,6 +27,7 @@ function initMain() {
     renderRatSliders(document.getElementById("createSliders"));
     renderPalettes(document.getElementById("createPal"), document.getElementById("createPalName"));
     drawRatPreview();
+    trapFocus(createOverlay.querySelector(".modal"));
   }
 }
 

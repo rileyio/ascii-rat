@@ -595,6 +595,7 @@ function openGame() {
   document.getElementById("mazeDirectionIndicator").style.display = isMobile ? "block" : "none";
   
   newMaze();
+  trapFocus(gameOverlay.querySelector(".modal"));
 }
 
 function closeGame() {

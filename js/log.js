@@ -334,6 +334,7 @@ function openLog() {
   updateVerSegs();
   renderBody();
   drawChevrons();
+  trapFocus(m);
 }
 function closeLog() {
   overlay.classList.remove("show");
