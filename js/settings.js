@@ -20,6 +20,11 @@ const MOTION_DESC = {
   BREATH: "slow looming in and out",
 };
 const RAMPS_LIST = ["MINIMAL", "CLASSIC", "GLYPH", "BLOCKS"];
+const RENDER_MODES = ["POINTS", "POLYGON"];
+const RENDER_MODE_DESC = {
+  POINTS: "shaded point cloud - the classic slop",
+  POLYGON: "wireframe mesh - the rat drawn as polygon edges",
+};
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -146,6 +151,9 @@ function applyBg() {
 }
 
 // ---------- builder preview: pixel-dot rat silhouette (no spin) ----------
+// polygon-mode scratch for the mini preview: projected cell + rotated normal per mesh point
+let pvcol = new Int32Array(0), pvrow = new Int32Array(0), pvz = new Float32Array(0);
+let pvnx = new Float32Array(0), pvny = new Float32Array(0), pvnz = new Float32Array(0);
 let previewRot = 0;
 let previewAutoSpin = false;
 let previewSpinT = 0;
@@ -367,7 +375,10 @@ function drawPreviewTo(cv) {
   // PR1-6/PR1-8: the mini preview is a miniature of the main screen: a
   // coarse character grid where every occupied cell is drawn as the real
   // ramp glyph in its palette shade, with the background effect behind it.
-  const cellW = 6, cellH = 10; // char cell - same 0.6 aspect as the main screen
+  // The cell size follows the render resolution so the preview shows the
+  // same detail scale as the main screen.
+  const res = state.resolution || 1;
+  const cellW = 6 / res, cellH = 10 / res; // char cell - same 0.6 aspect as the main screen
   const gcols = Math.floor(W / cellW);
   const grows = Math.floor(H / cellH);
   drawPreviewBg(ctx, W, H, pal);
@@ -396,8 +407,17 @@ function drawPreviewTo(cv) {
   // project onto the character grid exactly like the main screen:
   // columns get scale*CHAR_ASPECT, rows get scale
   scale = (gcols * 0.9 * scale) / (9 * CHAR_ASPECT);
-  for (let i = 0; i < pts.length; i++) {
-    const p = pts[i];
+  // POLYGON mode draws the wireframe mesh instead of the shaded point cloud
+  const polygon = state.renderMode === "POLYGON";
+  const cloud = polygon ? mpts : pts;
+  if (polygon && pvcol.length < cloud.length) {
+    pvcol = new Int32Array(cloud.length); pvrow = new Int32Array(cloud.length);
+    pvz = new Float32Array(cloud.length);
+    pvnx = new Float32Array(cloud.length); pvny = new Float32Array(cloud.length); pvnz = new Float32Array(cloud.length);
+  }
+  for (let i = 0; i < cloud.length; i++) {
+    const p = cloud[i];
+    if (polygon) pvcol[i] = -1; // stale projections must not draw
     if (ent < 1 && state.entrance === "MATERIALIZE" && p.b > ent) continue;
     const x1 = p.x * cy2 + p.z * sy2;
     const z1 = -p.x * sy2 + p.z * cy2;
@@ -416,6 +436,14 @@ function drawPreviewTo(cv) {
     if (c2 < 0 || c2 >= gcols) continue;
     const r2 = Math.round(grows / 2 - (y2 + yOff) * scale);
     if (r2 < 0 || r2 >= grows) continue;
+    if (polygon) {
+      // stash the projection + rotated normal; edges are drawn below
+      pvcol[i] = c2; pvrow[i] = r2; pvz[i] = z2;
+      const nx1 = p.nx * cy2 + p.nz * sy2;
+      const nz1 = -p.nx * sy2 + p.nz * cy2;
+      pvnx[i] = nx1; pvny[i] = p.ny * cp2 - nz1 * sp2; pvnz[i] = p.ny * sp2 + nz1 * cp2;
+      continue;
+    }
     const idx = r2 * gcols + c2;
     if (z2 <= depth[idx]) continue;
     depth[idx] = z2;
@@ -431,6 +459,41 @@ function drawPreviewTo(cv) {
     }
     shade[idx] = Math.max(0.05, Math.min(1, s));
     carve[idx] = p.carve ? 1 : 0;
+  }
+  // POLYGON: draw the mesh edges into the cell grid, z-buffered per cell
+  if (polygon) {
+    for (let e = 0; e < medges.length; e += 2) {
+      const ia = medges[e], ib = medges[e + 1];
+      const x0 = pvcol[ia], y0 = pvrow[ia], x1 = pvcol[ib], y1 = pvrow[ib];
+      if (x0 < 0 || x1 < 0) continue;
+      const z0 = pvz[ia], z1 = pvz[ib];
+      const fa = cloud[ia].f, fb = cloud[ib].f;
+      const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+      const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+      const steps = Math.max(dx, dy) || 1;
+      let err = dx - dy, x = x0, y = y0;
+      for (let k = 0; k <= steps; k++) {
+        const z = z0 + (z1 - z0) * (k / steps);
+        const idx = y * gcols + x;
+        if (z > depth[idx]) {
+          depth[idx] = z;
+          let s;
+          if (fa !== undefined && fb !== undefined) {
+            s = (fa + fb) * 0.5;
+          } else {
+            const d = ((pvnx[ia] + pvnx[ib]) * 0.5) * LIGHT[0] +
+                      ((pvny[ia] + pvny[ib]) * 0.5) * LIGHT[1] +
+                      ((pvnz[ia] + pvnz[ib]) * 0.5) * LIGHT[2];
+            s = 0.5 + 0.5 * d;
+          }
+          shade[idx] = Math.max(0.05, Math.min(1, s));
+        }
+        if (k === steps) break;
+        const e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; x += sx; }
+        if (e2 < dx) { err += dx; y += sy; }
+      }
+    }
   }
   ctx.font = cellH + "px monospace";
   ctx.textBaseline = "top";
@@ -796,6 +859,14 @@ function renderSettings() {
     const cr = el("div", "optrow");
     panel.append(cr);
     renderRamps(cr);
+    // render mode: shaded point cloud vs polygon wireframe
+    const rm = el("div", "optrow"), rmd = el("div", "palname");
+    panel.append(rm, rmd);
+    renderOptions(rm, RENDER_MODES, () => state.renderMode,
+      (n) => { state.renderMode = n; saveState(); drawRatPreview(); }, rmd, RENDER_MODE_DESC);
+    panel.append(sliderRow("RENDER RESOLUTION", 0.5, 2, 0.05, () => state.resolution,
+      (v) => { state.resolution = v; setResolution(v); buildRat(state.rat); drawRatPreview(); saveState(); },
+      (v) => Number(v).toFixed(2) + "x"));
     panel.append(sectionHead("ENTRANCE"));
     const ce = el("div", "optrow"), de = el("div", "palname");
     panel.append(ce, de);

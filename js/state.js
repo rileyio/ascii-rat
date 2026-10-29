@@ -27,6 +27,8 @@ const DEFAULTS = {
   soundEnabled: true,
   soundVolume: 0.5,
   density: 1,
+  resolution: 1,
+  renderMode: "POINTS",
   halloween: false,
   leafEnabled: true,
   leafAnimation: "GENTLE",
