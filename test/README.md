@@ -1,44 +1,43 @@
-# ASCII Rat - Tests
+# Tests
 
-**Core functionality tests using Playwright**
+Playwright smoke tests for the app's core functionality.
 
-## Quick Start
+## Run
 
 ```bash
-npm test              # Run all tests
-npm run test:headed  # Run with visible browser
-npm run test:ui      # Interactive UI mode
+npm test          # all tests (~4s)
+npm run test:ui   # interactive UI mode
 ```
 
-## Structure
+## Gotchas (read before writing tests)
 
-```
-test/
-├── README.md      # This file
-├── main.test.js   # Core functionality tests
-└── playwright.config.js  # Configuration
-```
+- **Nothing is exposed on `window`.** The app's globals (`state`, `curTab`,
+  `setResolution`, `renderSettings`, ...) are top-level `let`/`function`
+  declarations in classic scripts — global *lexical* bindings, invisible as
+  `window.x`. Readiness is detected via `#screen` content; tab navigation and
+  app functions work inside `page.evaluate`.
+- **`s` toggles settings.** Call `closeSettings()` before opening again.
+- **Settings tabs can be display:none.** With a narrow modal, the last tabs
+  (SHARE, ABOUT, PERFORMANCE) live behind the overflow dropdown, whose
+  automated clicks are unreliable. Tests navigate via
+  `curTab` + `renderSettings()` in `evaluate`.
+- The first-run "CREATE YOUR RAT" modal is dismissed in `beforeEach`.
+- Avoid `page.waitForTimeout`; use `expect.poll` and locator auto-waiting.
 
-## Tests
+## Coverage
 
-### Main Page (6 tests)
-- Hint bar shows only help hint
-- No duplicate hint elements
-- Notification button at top
-- Question mark key opens help
-- Escape key closes help
-- Help does not close on outside click
+| Describe | Tests | What |
+|----------|-------|------|
+| Main page | 2 | hint bar, error-free idle render |
+| Settings | 4 | STYLE (composition/mode/resolution), POLYGON render, resolution realloc, RAT share + ABOUT diagnostics |
+| Maze game | 1 | opens, shows score |
 
-### Settings (7 tests)
-- RAT COMPOSITION label in STYLE tab
-- Share button in RAT tab
-- Share button navigates to SHARE tab
-- ABOUT tab contains Diagnostics
-- SHARE tab does not contain Diagnostics
-- Speaker icon visible in PERFORMANCE tab
-- Volume slider visible in PERFORMANCE tab
+The uncaught page-error collector in `beforeEach` catches render-loop
+breakage (e.g. the "Assignment to constant variable" regression from the
+v6.1.0 merge).
 
-### Maze Game (1 test)
-- Time and score display correctly
+## Config
 
-**Total: 14 tests**
+`playwright.config.js` lives at the repo root — Playwright ignores configs
+in subdirectories (the old suite's config sat unused in `test/`, which is
+part of why it never ran properly).
