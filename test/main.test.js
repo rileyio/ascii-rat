@@ -100,3 +100,31 @@ test.describe('Maze game', () => {
     await expect(page.locator('#gameFoot')).toContainText('SCORE');
   });
 });
+
+test.describe('Mobile viewport', () => {
+  // Regression: a @media (max-width: 767px) rule used to force
+  // `.overlay { pointer-events: auto }`, so closed (opacity: 0) overlays
+  // still covered the screen and swallowed every click.
+  test.use({ viewport: { width: 400, height: 800 } });
+
+  test('closed overlays do not block pointer events', async ({ page }) => {
+    // No invisible overlay may sit on top of the page.
+    const hitAnOverlay = await page.evaluate(() => {
+      const el = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+      return !!el && !!el.closest('.overlay');
+    });
+    expect(hitAnOverlay).toBe(false);
+
+    // A real click must reach the stage.
+    await page.locator('#screen').click();
+
+    // Settings must still open and close at this width.
+    await page.keyboard.press('s');
+    await expect(page.locator('#setOverlay')).toHaveClass(/show/);
+    await page.keyboard.press('s');
+    await expect(page.locator('#setOverlay')).not.toHaveClass(/show/);
+
+    // And the page is interactive again afterwards.
+    await page.locator('#screen').click();
+  });
+});
