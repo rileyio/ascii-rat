@@ -20,6 +20,11 @@ const MOTION_DESC = {
   BREATH: "slow looming in and out",
 };
 const RAMPS_LIST = ["MINIMAL", "CLASSIC", "GLYPH", "BLOCKS"];
+const RENDER_MODES = ["POINTS", "POLYGON"];
+const RENDER_MODE_DESC = {
+  POINTS: "shaded point cloud - the classic slop",
+  POLYGON: "wireframe mesh - the rat drawn as polygon edges",
+};
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -146,6 +151,9 @@ function applyBg() {
 }
 
 // ---------- builder preview: pixel-dot rat silhouette (no spin) ----------
+// polygon-mode scratch for the mini preview: projected cell + rotated normal per mesh point
+let pvcol = new Int32Array(0), pvrow = new Int32Array(0), pvz = new Float32Array(0);
+let pvnx = new Float32Array(0), pvny = new Float32Array(0), pvnz = new Float32Array(0);
 let previewRot = 0;
 let previewAutoSpin = false;
 let previewSpinT = 0;
@@ -367,13 +375,17 @@ function drawPreviewTo(cv) {
   // PR1-6/PR1-8: the mini preview is a miniature of the main screen: a
   // coarse character grid where every occupied cell is drawn as the real
   // ramp glyph in its palette shade, with the background effect behind it.
-  const cellW = 6, cellH = 10; // char cell - same 0.6 aspect as the main screen
+  // The cell size follows the render resolution so the preview shows the
+  // same detail scale as the main screen.
+  const res = state.resolution || 1;
+  const cellW = 6 / res, cellH = 10 / res; // char cell - same 0.6 aspect as the main screen
   const gcols = Math.floor(W / cellW);
   const grows = Math.floor(H / cellH);
   drawPreviewBg(ctx, W, H, pal);
   drawPreviewLeaves(ctx, W, H);
   const depth = new Float32Array(gcols * grows).fill(-1e9);
   const shade = new Float32Array(gcols * grows);
+  const carve = new Uint8Array(gcols * grows); // 1 = carved-face cell (drawn negative)
   const theta = previewRot;
   let scale = previewZoom; // let: motion/entrance previews rescale this below
   // per-tab preview behaviour: each tab previews only the aspects it controls
@@ -395,8 +407,17 @@ function drawPreviewTo(cv) {
   // project onto the character grid exactly like the main screen:
   // columns get scale*CHAR_ASPECT, rows get scale
   scale = (gcols * 0.9 * scale) / (9 * CHAR_ASPECT);
-  for (let i = 0; i < pts.length; i++) {
-    const p = pts[i];
+  // POLYGON mode draws the wireframe mesh instead of the shaded point cloud
+  const polygon = state.renderMode === "POLYGON";
+  const cloud = polygon ? mpts : pts;
+  if (polygon && pvcol.length < cloud.length) {
+    pvcol = new Int32Array(cloud.length); pvrow = new Int32Array(cloud.length);
+    pvz = new Float32Array(cloud.length);
+    pvnx = new Float32Array(cloud.length); pvny = new Float32Array(cloud.length); pvnz = new Float32Array(cloud.length);
+  }
+  for (let i = 0; i < cloud.length; i++) {
+    const p = cloud[i];
+    if (polygon) pvcol[i] = -1; // stale projections must not draw
     if (ent < 1 && state.entrance === "MATERIALIZE" && p.b > ent) continue;
     const x1 = p.x * cy2 + p.z * sy2;
     const z1 = -p.x * sy2 + p.z * cy2;
@@ -415,6 +436,14 @@ function drawPreviewTo(cv) {
     if (c2 < 0 || c2 >= gcols) continue;
     const r2 = Math.round(grows / 2 - (y2 + yOff) * scale);
     if (r2 < 0 || r2 >= grows) continue;
+    if (polygon) {
+      // stash the projection + rotated normal; edges are drawn below
+      pvcol[i] = c2; pvrow[i] = r2; pvz[i] = z2;
+      const nx1 = p.nx * cy2 + p.nz * sy2;
+      const nz1 = -p.nx * sy2 + p.nz * cy2;
+      pvnx[i] = nx1; pvny[i] = p.ny * cp2 - nz1 * sp2; pvnz[i] = p.ny * sp2 + nz1 * cp2;
+      continue;
+    }
     const idx = r2 * gcols + c2;
     if (z2 <= depth[idx]) continue;
     depth[idx] = z2;
@@ -429,6 +458,44 @@ function drawPreviewTo(cv) {
       s = 0.5 + 0.5 * (nx1 * LIGHT[0] + ny2 * LIGHT[1] + nz2 * LIGHT[2]);
     }
     shade[idx] = Math.max(0.05, Math.min(1, s));
+    carve[idx] = p.carve ? 1 : 0;
+  }
+  // POLYGON: draw the mesh edges into the cell grid, z-buffered per cell
+  if (polygon) {
+    for (let e = 0; e < medges.length; e += 2) {
+      const ia = medges[e], ib = medges[e + 1];
+      const x0 = pvcol[ia], y0 = pvrow[ia], x1 = pvcol[ib], y1 = pvrow[ib];
+      if (x0 < 0 || x1 < 0) continue;
+      const z0 = pvz[ia], z1 = pvz[ib];
+      const fa = cloud[ia].f, fb = cloud[ib].f;
+      const ca = cloud[ia].carve, cb = cloud[ib].carve;
+      const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+      const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+      const steps = Math.max(dx, dy) || 1;
+      let err = dx - dy, x = x0, y = y0;
+      for (let k = 0; k <= steps; k++) {
+        const z = z0 + (z1 - z0) * (k / steps);
+        const idx = y * gcols + x;
+        if (z > depth[idx]) {
+          depth[idx] = z;
+          let s;
+          if (fa !== undefined && fb !== undefined) {
+            s = (fa + fb) * 0.5;
+          } else {
+            const d = ((pvnx[ia] + pvnx[ib]) * 0.5) * LIGHT[0] +
+                      ((pvny[ia] + pvny[ib]) * 0.5) * LIGHT[1] +
+                      ((pvnz[ia] + pvnz[ib]) * 0.5) * LIGHT[2];
+            s = 0.5 + 0.5 * d;
+          }
+          shade[idx] = Math.max(0.05, Math.min(1, s));
+          carve[idx] = ca && cb ? 1 : 0;
+        }
+        if (k === steps) break;
+        const e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; x += sx; }
+        if (e2 < dx) { err += dx; y += sy; }
+      }
+    }
   }
   ctx.font = cellH + "px monospace";
   ctx.textBaseline = "top";
@@ -441,21 +508,28 @@ function drawPreviewTo(cv) {
       // the main renderer (MINIMAL hides shades < ~0.16, GLYPH hides none).
       const ch = shadeChar(shade[idx]);
       if (ch === " ") continue;
-      const ci = Math.min(3, Math.max(0, Math.round(shade[idx] * 3)));
-      ctx.fillStyle = palCols[ci];
+      if (carve[idx]) {
+        // carved face renders in negative color: bright cell, dark glyph
+        ctx.fillStyle = pal.bright;
+        ctx.fillRect(c2 * cellW, r2 * cellH, cellW, cellH);
+        ctx.fillStyle = pal.deep;
+      } else {
+        const ci = Math.min(3, Math.max(0, Math.round(shade[idx] * 3)));
+        ctx.fillStyle = palCols[ci];
+      }
       ctx.fillText(ch, c2 * cellW, r2 * cellH);
     }
   }
 }
 
 const PALETTES = [
-  { name: "PHOSPHOR", fg: "#8effa5", bright: "#b6ffc6", mid: "#6fdc8b", dim: "#4c8f60", border: "#2f7a4b", panel: "#071009", deep: "#06120b", bg0: "#0d1a12", bg1: "#050807", glow: "rgba(70, 255, 130, 0.45)" },
-  { name: "AMBER", fg: "#ffc46e", bright: "#ffe3ab", mid: "#d9a355", dim: "#966a3a", border: "#8a6428", panel: "#140d04", deep: "#120b04", bg0: "#1c1305", bg1: "#0a0603", glow: "rgba(255, 190, 90, 0.4)" },
-  { name: "ICE", fg: "#9fdcff", bright: "#d8f2ff", mid: "#74b5da", dim: "#46748f", border: "#33627f", panel: "#04101a", deep: "#030d15", bg0: "#081a26", bg1: "#040a10", glow: "rgba(120, 210, 255, 0.4)" },
-  { name: "VAPOR", fg: "#ff9ad5", bright: "#ffd4f2", mid: "#d874b5", dim: "#8a4a78", border: "#964a88", panel: "#150618", deep: "#120416", bg0: "#1e0a24", bg1: "#0b0410", glow: "rgba(255, 150, 220, 0.4)" },
-  { name: "BLOOD", fg: "#ff8f8f", bright: "#ffd0d0", mid: "#d87070", dim: "#8f4a4a", border: "#963a3a", panel: "#150404", deep: "#110303", bg0: "#1e0808", bg1: "#0a0303", glow: "rgba(255, 120, 120, 0.4)" },
-  { name: "MONO", fg: "#e8e8e8", bright: "#ffffff", mid: "#b3b3b3", dim: "#6d6d6d", border: "#7c7c7c", panel: "#0e0e0e", deep: "#0b0b0b", bg0: "#151515", bg1: "#060606", glow: "rgba(230, 230, 230, 0.35)" },
-  { name: "HALLOWEEN", fg: "#ff9a3c", bright: "#ffd9a0", mid: "#d97b2a", dim: "#8f4a1a", border: "#6d3fa0", panel: "#140a04", deep: "#0e0803", bg0: "#1a0e05", bg1: "#0a0503", glow: "rgba(255, 150, 50, 0.45)" },
+  { name: "PHOSPHOR", fg: "#8effa5", bright: "#b6ffc6", mid: "#6fdc8b", dim: "#5da873", border: "#2f7a4b", panel: "#071009", deep: "#06120b", bg0: "#0d1a12", bg1: "#050807", glow: "rgba(70, 255, 130, 0.45)" },
+  { name: "AMBER", fg: "#ffc46e", bright: "#ffe3ab", mid: "#d9a355", dim: "#a87a45", border: "#8a6428", panel: "#140d04", deep: "#120b04", bg0: "#1c1305", bg1: "#0a0603", glow: "rgba(255, 190, 90, 0.4)" },
+  { name: "ICE", fg: "#9fdcff", bright: "#d8f2ff", mid: "#74b5da", dim: "#5585a3", border: "#33627f", panel: "#04101a", deep: "#030d15", bg0: "#081a26", bg1: "#040a10", glow: "rgba(120, 210, 255, 0.4)" },
+  { name: "VAPOR", fg: "#ff9ad5", bright: "#ffd4f2", mid: "#d874b5", dim: "#a05a8c", border: "#964a88", panel: "#150618", deep: "#120416", bg0: "#1e0a24", bg1: "#0b0410", glow: "rgba(255, 150, 220, 0.4)" },
+  { name: "BLOOD", fg: "#ff8f8f", bright: "#ffd0d0", mid: "#d87070", dim: "#a86060", border: "#963a3a", panel: "#150404", deep: "#110303", bg0: "#1e0808", bg1: "#0a0303", glow: "rgba(255, 120, 120, 0.4)" },
+  { name: "MONO", fg: "#e8e8e8", bright: "#ffffff", mid: "#b3b3b3", dim: "#808080", border: "#7c7c7c", panel: "#0e0e0e", deep: "#0b0b0b", bg0: "#151515", bg1: "#060606", glow: "rgba(230, 230, 230, 0.35)" },
+  { name: "HALLOWEEN", fg: "#ff9a3c", bright: "#ffd9a0", mid: "#d97b2a", dim: "#b07030", border: "#6d3fa0", panel: "#140a04", deep: "#0e0803", bg0: "#1a0e05", bg1: "#0a0503", glow: "rgba(255, 150, 50, 0.45)" },
 ];
 
 function swatchBg(p) {
@@ -726,9 +800,9 @@ function shareRow() {
   const code = window.encodeShareCode ? encodeShareCode() : ratCode();
   const link = window.generateShareURL ? generateShareURL() : shareLink(code);
   const top = el("div", "srowtop");
-  top.append(el("span", "slabel", "SHARE YOUR RAT"));
+  top.append(el("span", "slabel", "SHARE YOUR SETUP"));
   // PR1-16: Copy button gets blue styling
-  const btn = el("button", "tab copy-btn", "[ COPY RAT LINK ]");
+  const btn = el("button", "tab copy-btn", "[ COPY LINK ]");
   btn.type = "button";
   btn.addEventListener("click", () => {
     try {
@@ -737,10 +811,12 @@ function shareRow() {
     } catch (e) {
       btn.textContent = "[ " + code + " ]";
     }
-    setTimeout(() => { btn.textContent = "[ COPY RAT LINK ]"; }, 1400);
+    setTimeout(() => { btn.textContent = "[ COPY LINK ]"; }, 1400);
   });
   top.append(btn);
   row.append(top, el("div", "palname", code));
+  // v2 share codes carry the full setup: rat body, animations, style, preferences
+  row.append(el("div", "palname", "includes rat body, animations, style & preferences"));
   return row;
 }
 function renderSettings() {
@@ -762,7 +838,7 @@ function renderSettings() {
     renderRatSliders(sliders);
     // PR1-11: Single Share button that navigates to Share tab
     const shareBtnRow = el("div", "srow");
-    const shareBtn = el("button", "tab", "[ SHARE ]");
+    const shareBtn = el("button", "tab", "[ SHARE SETUP ]");
     shareBtn.type = "button";
     shareBtn.addEventListener("click", () => { curTab = "SHARE"; renderSettings(); });
     shareBtnRow.append(shareBtn);
@@ -785,6 +861,14 @@ function renderSettings() {
     const cr = el("div", "optrow");
     panel.append(cr);
     renderRamps(cr);
+    // render mode: shaded point cloud vs polygon wireframe
+    const rm = el("div", "optrow"), rmd = el("div", "palname");
+    panel.append(rm, rmd);
+    renderOptions(rm, RENDER_MODES, () => state.renderMode,
+      (n) => { state.renderMode = n; saveState(); drawRatPreview(); }, rmd, RENDER_MODE_DESC);
+    panel.append(sliderRow("RENDER RESOLUTION", 0.5, 2, 0.05, () => state.resolution,
+      (v) => { state.resolution = v; setResolution(v); buildRat(state.rat); drawRatPreview(); saveState(); },
+      (v) => Number(v).toFixed(2) + "x"));
     panel.append(sectionHead("ENTRANCE"));
     const ce = el("div", "optrow"), de = el("div", "palname");
     panel.append(ce, de);
@@ -828,7 +912,7 @@ function renderSettings() {
     if (isOctober) {
       panel.append(sectionHead("SEASONAL"));
       panel.append(toggleRow("HALLOWEEN MODE", () => state.halloween,
-        (v) => { state.halloween = v; applyHalloween(); saveState(); renderSettings(); }));
+        (v) => { state.halloween = v; applyHalloween(); buildRat(state.rat); drawRatPreview(); saveState(); renderSettings(); }));
     }
   } else if (curTab === "PREFERENCES") {
     // PR1-10: the zoom-speed demo runs only while PREFERENCES is the
@@ -846,7 +930,7 @@ function renderSettings() {
     panel.append(sliderRow("ZOOM SPEED", 0.25, 3, 0.05, () => state.zoomSpeed,
       (v) => { state.zoomSpeed = v; saveState(); }, (v) => Number(v).toFixed(2) + "x"));
   } else if (curTab === "SHARE") {
-    panel.append(sectionHead("SHARE YOUR RAT"));
+    panel.append(sectionHead("SHARE YOUR SETUP"));
     panel.append(shareRow());
   } else if (curTab === "ABOUT") {
     // PR1-12: Move Diagnostics to About tab
@@ -854,7 +938,7 @@ function renderSettings() {
     panel.append(el("div", "palname", "A 3D rat rendered as pure ASCII in your browser."));
     panel.append(sectionHead("DIAGNOSTICS"));
     const diag = el("div", "srow");
-    diag.append(el("span", "slabel", "Version: v" + (state.setupDone ? "6.0.0" : "5.x.x")));
+    diag.append(el("span", "slabel", "Version: v" + (state.setupDone ? "6.1.0" : "5.x.x")));
     diag.append(el("span", "sval", " | LocalStorage: " + (store.get(SAVE_KEY) ? "active" : "empty")));
     panel.append(diag);
   } else if (curTab === "PERFORMANCE") {
@@ -941,6 +1025,33 @@ function applyFx() {
   document.querySelector(".scanlines").style.display = on ? "" : "none";
   document.querySelector(".vignette").style.display = on ? "" : "none";
 }
+// ---------- modal focus trap (WCAG 2.1) ----------
+// Keeps keyboard focus inside the modal while it's open
+function trapFocus(modal) {
+  if (!modal) return;
+  const focusable = modal.querySelectorAll(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  );
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+
+  const handler = (e) => {
+    if (e.key !== "Tab") return;
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+  modal.addEventListener("keydown", handler);
+  // focus first element on open
+  setTimeout(() => first?.focus(), 100);
+  return () => modal.removeEventListener("keydown", handler);
+}
+
 function openSettings() {
   setOverlay.classList.add("show");
   setOverlay.setAttribute("aria-hidden", "false");
@@ -959,6 +1070,7 @@ function openSettings() {
   renderSettings();
   updateSculpt();
   setPreviewSpinUI();
+  trapFocus(m);
 }
 function closeSettings() {
   setOverlay.classList.remove("show");
@@ -1081,6 +1193,17 @@ applyBg();
 applyCursorMode();
 applyFx();
 drawChevrons();
+
+// Respect reduced motion preferences: disable phosphor FX and cursor effects
+const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+if (prefersReducedMotion) {
+  state.fx = false;
+  applyFx();
+  if (state.cursor !== "OFF") {
+    state.cursor = "OFF";
+    applyCursorMode();
+  }
+}
 
 
 // Schedule initial tab overflow check

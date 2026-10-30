@@ -27,6 +27,7 @@ function initMain() {
     renderRatSliders(document.getElementById("createSliders"));
     renderPalettes(document.getElementById("createPal"), document.getElementById("createPalName"));
     drawRatPreview();
+    trapFocus(createOverlay.querySelector(".modal"));
   }
 }
 
@@ -40,6 +41,10 @@ if (document.readyState === "loading") {
   initMain();
 }
 
+
+// polygon-mode scratch: projected cell + rotated normal per mesh point
+let pcol = new Int32Array(0), prow = new Int32Array(0), pz = new Float32Array(0);
+let pnx = new Float32Array(0), pny = new Float32Array(0), pnz = new Float32Array(0);
 
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
@@ -115,9 +120,20 @@ function frame(now) {
   if (!settingsOpen) {
     // clear
     grid.fill(-1e9);
+    carveMask.fill(0);
 
-    for (let i = 0; i < pts.length; i++) {
-      const p = pts[i];
+    // POLYGON mode draws the wireframe mesh instead of the shaded point cloud
+    const polygon = state.renderMode === "POLYGON";
+    const cloud = polygon ? mpts : pts;
+    if (polygon && pcol.length < cloud.length) {
+      pcol = new Int32Array(cloud.length); prow = new Int32Array(cloud.length);
+      pz = new Float32Array(cloud.length);
+      pnx = new Float32Array(cloud.length); pny = new Float32Array(cloud.length); pnz = new Float32Array(cloud.length);
+    }
+
+    for (let i = 0; i < cloud.length; i++) {
+      const p = cloud[i];
+      if (polygon) pcol[i] = -1; // stale projections must not draw
       // yaw around Y
       const x1 = p.x * cy + p.z * sy;
       const z1 = -p.x * sy + p.z * cy;
@@ -145,6 +161,15 @@ function frame(now) {
       const row = Math.round(ROWS / 2 - (y2 + yOff) * scale);
       if (row < 0 || row >= ROWS) continue;
 
+      if (polygon) {
+        // stash the projection + rotated normal; edges are drawn below
+        pcol[i] = col; prow[i] = row; pz[i] = z2;
+        const nx1 = p.nx * cy + p.nz * sy;
+        const nz1 = -p.nx * sy + p.nz * cy;
+        pnx[i] = nx1; pny[i] = p.ny * cp - nz1 * sp; pnz[i] = p.ny * sp + nz1 * cp;
+        continue;
+      }
+
       const idx = row * COLS + col;
       if (z2 <= grid[idx]) continue;
       grid[idx] = z2;
@@ -164,30 +189,81 @@ function frame(now) {
         if (z2 < -0.4) s *= 0.55;          // dim far side slightly (cheap depth cue)
       }
       chars[idx] = shadeChar(s);
+      carveMask[idx] = p.carve ? 1 : 0;
     }
 
-    // build frame, clearing unused cells
-    let out = "";
+    // POLYGON: draw the mesh edges, z-buffered per cell
+    if (polygon) {
+      for (let e = 0; e < medges.length; e += 2) {
+        const ia = medges[e], ib = medges[e + 1];
+        const x0 = pcol[ia], y0 = prow[ia], x1 = pcol[ib], y1 = prow[ib];
+        if (x0 < 0 || x1 < 0) continue;
+        const z0 = pz[ia], z1 = pz[ib];
+        const fa = cloud[ia].f, fb = cloud[ib].f;
+        const ca = cloud[ia].carve, cb = cloud[ib].carve;
+        const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+        const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+        const steps = Math.max(dx, dy) || 1;
+        let err = dx - dy, x = x0, y = y0;
+        for (let k = 0; k <= steps; k++) {
+          const z = z0 + (z1 - z0) * (k / steps);
+          const idx = y * COLS + x;
+          if (z > grid[idx]) {
+            grid[idx] = z;
+            let s;
+            if (fa !== undefined && fb !== undefined) {
+              s = (fa + fb) * 0.5;
+            } else {
+              const d = ((pnx[ia] + pnx[ib]) * 0.5) * LIGHT[0] +
+                        ((pny[ia] + pny[ib]) * 0.5) * LIGHT[1] +
+                        ((pnz[ia] + pnz[ib]) * 0.5) * LIGHT[2];
+              s = Math.pow(0.5 + 0.5 * d, 0.85);
+              if (z < -0.4) s *= 0.55;      // dim far side, like the point cloud
+            }
+            chars[idx] = shadeChar(s);
+            carveMask[idx] = ca && cb ? 1 : 0;
+          }
+          if (k === steps) break;
+          const e2 = 2 * err;
+          if (e2 > -dy) { err -= dy; x += sx; }
+          if (e2 < dx) { err += dx; y += sy; }
+        }
+      }
+    }
+
+    // build frame, clearing unused cells (outHtml escapes and wraps carved-face
+    // cells in negative-color spans; out stays plain for the fast textContent path)
+    const escCh = (ch) => ch === "&" ? "&amp;" : ch === "<" ? "&lt;" : ch === ">" ? "&gt;" : ch;
+    let out = "", outHtml = "", anyCarve = false;
     for (let r = 0; r < ROWS; r++) {
       const start = r * COLS;
       for (let c = 0; c < COLS; c++) {
         const idx = start + c;
         if (grid[idx] === -1e9) chars[idx] = " ";
-        out += chars[idx];
+        const ch = chars[idx];
+        out += ch;
+        if (carveMask[idx]) {
+          anyCarve = true;
+          outHtml += '<span class="carve">' + escCh(ch) + "</span>";
+        } else {
+          outHtml += escCh(ch);
+        }
       }
-      if (r < ROWS - 1) out += "\n";
+      if (r < ROWS - 1) { out += "\n"; outHtml += "\n"; }
     }
 
     if (party) {
-      // rainbow waves: each line rides its own hue
-      const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-      pre.innerHTML = out
+      // rainbow waves: each line rides its own hue (carved-face cells keep
+      // their negative colors via the nested .carve span)
+      pre.innerHTML = outHtml
         .split("\n")
         .map((ln, r) => {
           const h = (partyHue + r * 13) % 360;
-          return '<span style="color:hsl(' + h + ', 95%, 68%)">' + esc(ln) + "</span>";
+          return '<span style="color:hsl(' + h + ', 95%, 68%)">' + ln + "</span>";
         })
         .join("\n");
+    } else if (anyCarve) {
+      pre.innerHTML = outHtml;
     } else {
       pre.textContent = out;
     }

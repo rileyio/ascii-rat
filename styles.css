@@ -4,13 +4,19 @@
   --fg: #8effa5;
   --fg-bright: #b6ffc6;
   --fg-mid: #6fdc8b;
-  --fg-dim: #4c8f60;
+  --fg-dim: #5da873;
   --border: #2f7a4b;
   --panel: #071009;
   --deep: #06120b;
   --bg0: #0d1a12;
   --bg1: #050807;
   --glow: rgba(70, 255, 130, 0.45);
+  /* spacing scale */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
 }
 * {
   margin: 0;
@@ -33,12 +39,12 @@ body {
   user-select: none;
 }
 h1 {
-  font-size: clamp(14px, 2.4vw, 22px);
-  letter-spacing: 0.5em;
+  font-size: clamp(16px, 3vw, 28px);
+  letter-spacing: clamp(0.2em, 1vw, 0.4em);
   font-weight: 600;
   color: var(--fg-bright);
-  text-shadow: 0 0 12px var(--glow);
-  margin-bottom: 1.2em;
+  text-shadow: 0 0 8px var(--glow);
+  margin-bottom: var(--space-lg);
   cursor: pointer;
 }
 #stage {
@@ -57,8 +63,14 @@ pre {
 pre:active {
   cursor: grabbing;
 }
+/* jack-o'-lantern carved face: negative color - bright cell, dark glyph */
+pre .carve {
+  background-color: var(--fg-bright);
+  color: var(--deep);
+  text-shadow: none;
+}
 .hint {
-  margin-top: 1.4em;
+  margin-top: var(--space-lg);
   font-size: clamp(10px, 1.4vw, 13px);
   letter-spacing: 0.25em;
   color: var(--fg-dim);
@@ -101,7 +113,8 @@ pre:active {
 
 /* ---------- orientation readout + control buttons ---------- */
 #readout {
-  margin-top: 1em;
+  margin-top: var(--space-md);
+  margin-bottom: var(--space-sm);
   font-size: clamp(11px, 1.6vw, 15px);
   letter-spacing: 0.18em;
   color: var(--fg-mid);
@@ -112,12 +125,13 @@ pre:active {
   gap: 1em;
   flex-wrap: wrap;
   justify-content: center;
-  margin-top: 1.1em;
+  margin-top: var(--space-md);
 }
 .cbtn {
   font-family: inherit;
   font-size: clamp(10px, 1.4vw, 13px);
-  letter-spacing: 0.22em;
+  letter-spacing: 0.18em;
+  font-weight: 500;
   background: var(--panel);
   color: var(--fg);
   border: 2px solid var(--border);
@@ -126,7 +140,17 @@ pre:active {
   box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.65);
   transition: transform 0.08s, box-shadow 0.08s, color 0.2s, border-color 0.2s, background 0.2s;
 }
-.cbtn:hover { color: var(--fg-bright); border-color: var(--fg-mid); }
+.cbtn:hover {
+  color: var(--fg-bright);
+  border-color: var(--fg-mid);
+  background: rgba(255, 255, 255, 0.03);
+  transform: translateY(-1px);
+  box-shadow: 3px 4px 0 rgba(0, 0, 0, 0.65), 0 0 12px var(--glow);
+}
+.cbtn:active {
+  transform: translateY(0);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.65);
+}
 /* press-jump replaced by the pixel ripple + hover shimmer (see .ppx/.shx) */
 .cbtn.on {
   color: #ffe08a;
@@ -150,11 +174,6 @@ pre:active {
   pointer-events: auto;
 }
 
-/* Force help overlay to never block when hidden */
-#helpOverlay:not(.show) {
-  pointer-events: none !important;
-  /* Element stays in DOM with opacity:0 so animations work */
-}
 .modal {
   position: absolute;
   top: 50%;
@@ -185,7 +204,8 @@ pre:active {
 }
 .mclose {
   font-family: inherit;
-  font-size: 14px;
+  font-size: 16px;
+  font-weight: 700;
   line-height: 1;
   width: 26px;
   height: 26px;
@@ -194,8 +214,63 @@ pre:active {
   border: 2px solid var(--border);
   cursor: pointer;
   box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6);
+  transition: all 0.15s ease;
 }
-.mclose:hover { color: #ffc9c9; border-color: #b85454; }
+.mclose:hover {
+  color: #ffc9c9;
+  border-color: #ff6a6a;
+  background: rgba(255, 106, 106, 0.15);
+  transform: rotate(90deg);
+}
+
+/* ---------- keyboard focus visibility (WCAG 2.1) ---------- */
+.cbtn:focus-visible,
+.tab:focus-visible,
+.mclose:focus-visible,
+.swatch:focus-visible,
+input:focus-visible,
+select:focus-visible,
+.previewCtrl:focus-visible,
+.vchev:focus-visible,
+.sfxSpeakerBtn:focus-visible {
+  outline: 2px solid var(--fg-bright);
+  outline-offset: 2px;
+}
+
+/* ---------- respect reduced motion preferences ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  /* disable cursor trails and background animations */
+  #cursorGlow,
+  .cdot {
+    display: none !important;
+  }
+
+  body.bg-stars,
+  body.bg-rain,
+  body.bg-fall,
+  body.halloween {
+    animation: none !important;
+  }
+
+  body.set-open.bg-stars,
+  body.set-open.bg-rain,
+  body.set-open.bg-fall,
+  body.set-open.halloween {
+    animation-play-state: running !important;
+  }
+
+  body.set-open .falling-leaf {
+    animation-play-state: running !important;
+  }
+}
 
 /* ---------- Maze Modal Styling ---------- */
 .mazeModal {
@@ -343,7 +418,11 @@ pre:active {
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
-.tab:hover { color: var(--fg-bright); border-color: var(--fg-dim); }
+.tab:hover {
+  color: var(--fg-bright);
+  border-color: var(--fg-dim);
+  background: rgba(255, 255, 255, 0.03);
+}
 .tab.active {
   color: var(--deep);
   background: var(--fg);
@@ -442,8 +521,8 @@ pre:active {
   margin: 0 0.35em;
   padding: 0.2em 1.4em 1.2em;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
-  font-size: clamp(11px, 1.5vw, 13.5px);
-  line-height: 1.8;
+  font-size: clamp(12px, 1.6vw, 14px);
+  line-height: 1.6;
 }
 .ver {
   margin: 1em 0 0.2em;
@@ -552,10 +631,14 @@ body.halloween {
   opacity: 0.8;
 }
 .shead {
-  margin: 1.1em 0 0.25em;
-  font-size: 13px;
-  letter-spacing: 0.22em;
-  color: var(--fg-mid);
+  margin: var(--space-lg) 0 var(--space-sm);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.25em;
+  color: var(--fg-bright);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-xs);
 }
 .srow { margin: 0.55em 0; }
 .srowtop {
@@ -598,6 +681,15 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--fg);
   border: 1px solid var(--fg-bright);
   box-shadow: 0 0 8px var(--glow);
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 12px var(--glow);
+}
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: scale(1.1);
 }
 input[type="range"]::-moz-range-thumb {
   width: 12px;
@@ -605,6 +697,12 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 0;
   background: var(--fg);
   border: 1px solid var(--fg-bright);
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+input[type="range"]::-moz-range-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 12px var(--glow);
 }
 .trow {
   display: flex;
@@ -784,15 +882,6 @@ body.setup .hint { visibility: hidden; }
     left: 50%;
     transform: translateX(-50%);
   }
-  
-  /* Don't close modals on outside tap for mobile */
-  .overlay {
-    pointer-events: auto;
-  }
-  
-  .overlay.show {
-    opacity: 1;
-  }
 }
 
 /* Mobile-specific modal styling */
@@ -813,8 +902,8 @@ body.setup .hint { visibility: hidden; }
 }
 .helpContent {
   font-family: inherit;
-  font-size: 14px;
-  line-height: 1.8;
+  font-size: clamp(12px, 1.6vw, 14px);
+  line-height: 1.7;
 }
 .helpContent p {
   margin: 0.4em 0;

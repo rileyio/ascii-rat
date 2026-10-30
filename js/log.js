@@ -157,6 +157,24 @@ const CHANGELOG = [
       { s: "major", text: "HARDENING: single-owner in-game keys (one move per keypress, case-insensitive WASD), joystick and direction indicator survive maze re-renders, settings-open render skips, boot state sync, file://-safe share links, AudioContext autostart fix, leaf constant dedupe, dead preview state dropped" },
     ],
   },
+  {
+    tag: "v6.1.0",
+    name: "SPOOKY SQUEAK",
+    entries: [
+      { s: "major", text: "HALLOWEEN PUMPKIN HEAD: when Halloween mode is on, the rat's head becomes a jack-o'-lantern - ridged pumpkin, stem, and a carved face glowing in negative color (dark glyphs on bright cells) with triangle eyes and a wide smile-arc grin lined with jagged teeth - everywhere the rat appears: the 3D stage, settings and builder previews, and the maze game" },
+      { s: "major", text: "FULL-SETUP SHARE CODES: share links now carry your entire setup - rat body, animations (motion, spin, glide, momentum, entrance), style (ramp, palette, background, density, falling leaves, halloween), preferences (cursor, zoom, smooth zoom), performance (fps, fx, sound), and party mode - 31 characters instead of 13" },
+      { s: "major", text: "POLYGON RENDER MODE: a second way to draw the rat - a wireframe mesh of polygon edges instead of the shaded point cloud, same rat, same palettes, same grab-and-spin; pick POINTS or POLYGON in the STYLE tab under RAT COMPOSITION, and the choice persists like every other setting" },
+      { s: "medium", text: "Maze game gets a pumpkin-headed rat: new 16x16 pixel sprite with carved face, plus a canvas-drawn pumpkin fallback while the sprite loads" },
+      { s: "medium", text: "Share code rat encoding fixed: body sliders now use their correct ranges instead of a one-size-fits-all window, so shared rats arrive looking exactly as sculpted" },
+      { s: "medium", text: "Accessibility pass: keyboard focus rings on every interactive element (:focus-visible), open dialogs trap Tab so keyboard users stay inside, and prefers-reduced-motion is honoured in the CSS and at boot" },
+      { s: "medium", text: "Contrast pass: dim text lifted from 3.2:1 to about 4.6:1 across all seven palettes, for WCAG AA readability" },
+      { s: "medium", text: "The jack-o'-lantern carries into POLYGON mode too - a ridged wireframe pumpkin, stem included, with glowing outline loops tracing the carved face in the same negative-color treatment" },
+      { s: "medium", text: "Mobile fix: closed overlays no longer swallow every tap - the old pointer-events rule that blanketed the page at phone widths is gone" },
+      { s: "minor", text: "SHARE tab renamed to SHARE YOUR SETUP with a note listing what the link carries" },
+      { s: "minor", text: "Visual polish: a spacing scale, heavier section headers, hover micro-interactions on buttons and sliders, a rotating close button, bigger modal text and a calmer title glow" },
+      { s: "minor", text: "Test suite rewritten: the never-passing readiness wait fixed, flakes defused, and regression coverage added for render modes, the carved pumpkin face and mobile taps" },
+    ],
+  },
 ];
 
 const SEV = {
@@ -334,6 +352,7 @@ function openLog() {
   updateVerSegs();
   renderBody();
   drawChevrons();
+  trapFocus(m);
 }
 function closeLog() {
   overlay.classList.remove("show");

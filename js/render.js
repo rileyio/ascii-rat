@@ -1,11 +1,12 @@
 "use strict";
 
 // ---------- render setup ----------
-const COLS = 120, ROWS = 34;
+let COLS = 120, ROWS = 34;
 const CHAR_ASPECT = 1 / 0.6; // char cell height / width in a typical monospace font
 const pre = document.getElementById("screen");
-const grid = new Float32Array(COLS * ROWS);   // depth buffer
-const chars = new Array(COLS * ROWS).fill(" ");
+let grid = new Float32Array(COLS * ROWS);   // depth buffer
+let chars = new Array(COLS * ROWS).fill(" ");
+let carveMask = new Uint8Array(COLS * ROWS); // 1 = jack-o'-lantern carved-face cell
 
 const LIGHT = (() => {
   const l = [-0.45, 0.75, 0.6];
@@ -88,7 +89,16 @@ function fit() {
   pre.style.fontSize = Math.max(6, Math.floor(Math.min(fw, fh))) + "px";
 }
 addEventListener("resize", fit);
-fit();
+// render resolution scale: reallocates the character grid (state.resolution)
+function setResolution(s) {
+  COLS = Math.max(40, Math.round(120 * s));
+  ROWS = Math.max(12, Math.round(34 * s));
+  grid = new Float32Array(COLS * ROWS);
+  chars = new Array(COLS * ROWS).fill(" ");
+  carveMask = new Uint8Array(COLS * ROWS);
+  fit();
+}
+setResolution(state.resolution || 1);
 
 // ---------- party mode ----------
 const partyBtn = document.getElementById("partyBtn");
@@ -150,6 +160,7 @@ function toggleHelp() {
       helpContent.style.opacity = "1";
       helpContent.style.transform = "translateY(0)";
     });
+    trapFocus(helpOverlay.querySelector(".modal"));
   } else {
     helpContent.style.opacity = "";
     helpContent.style.transform = "";
