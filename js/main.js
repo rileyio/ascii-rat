@@ -200,6 +200,7 @@ function frame(now) {
         if (x0 < 0 || x1 < 0) continue;
         const z0 = pz[ia], z1 = pz[ib];
         const fa = cloud[ia].f, fb = cloud[ib].f;
+        const ca = cloud[ia].carve, cb = cloud[ib].carve;
         const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
         const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
         const steps = Math.max(dx, dy) || 1;
@@ -220,6 +221,7 @@ function frame(now) {
               if (z < -0.4) s *= 0.55;      // dim far side, like the point cloud
             }
             chars[idx] = shadeChar(s);
+            carveMask[idx] = ca && cb ? 1 : 0;
           }
           if (k === steps) break;
           const e2 = 2 * err;

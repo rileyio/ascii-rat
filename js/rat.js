@@ -68,6 +68,37 @@ function meshEllipsoid(cx, cy, cz, rx, ry, rz, nu, nv, opts = {}) {
   }
 }
 
+// ridged lat/long grid for the pumpkin: like meshEllipsoid, but the radius is
+// modulated by cos(lobes * u) so the wireframe lines ride the lobe crests
+function meshPumpkin(cx, cy, cz, rx, ry, rz, nu, nv, lobes, ridgeAmp, opts = {}) {
+  const base = mpts.length;
+  for (let i = 0; i < nu; i++) {
+    const u = (i / nu) * 2 * Math.PI + rand(-0.06, 0.06);
+    const ridge = 1 + ridgeAmp * Math.cos(lobes * u);
+    for (let j = 0; j < nv; j++) {
+      const v = (j / (nv - 1)) * Math.PI + rand(-0.04, 0.04);
+      const dx = Math.sin(v) * Math.cos(u);
+      const dy = Math.cos(v);
+      const dz = Math.sin(v) * Math.sin(u);
+      let nx = dx / (rx * ridge), ny = dy / ry, nz = dz / (rz * ridge);
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      mpts.push({
+        x: cx + dx * rx * ridge, y: cy + dy * ry, z: cz + dz * rz * ridge,
+        nx: nx / nl, ny: ny / nl, nz: nz / nl,
+        f: opts.force,
+        tag: opts.tag,
+      });
+    }
+  }
+  for (let i = 0; i < nu; i++) {
+    for (let j = 0; j < nv; j++) {
+      const a = base + i * nv + j;
+      medges.push(a, base + ((i + 1) % nu) * nv + j);
+      if (j < nv - 1) medges.push(a, base + i * nv + j + 1);
+    }
+  }
+}
+
 // ---------- rat construction: fully parametric (character creation) ----------
 function buildRat(p) {
   pts.length = 0;
@@ -176,6 +207,88 @@ function buildRat(p) {
         const zig = Math.abs(Math.sin(t * Math.PI * 3)) * 0.5 * mh;
         facePt(my + grin + rand(-mh / 2, mh / 2) + zig, mz);
       }
+    }
+
+    // ---------- wireframe mesh (POLYGON render mode) ----------
+    // mesh points are only drawn when connected by an edge, so the pumpkin
+    // body + stem get surface grids and the carved face gets outline loops
+    meshPumpkin(headX, headY, 0, prx, pry, prz, 20, 10, lobes, ridgeAmp);
+
+    // Stem: small ring-stack mesh, like the snout (around + between rings)
+    {
+      const stemSegs = 3, stemRing = 6;
+      for (let i = 0; i <= stemSegs; i++) {
+        const t = i / stemSegs;
+        const r = stemR * (1 - 0.4 * t);
+        const ringBase = mpts.length;
+        for (let j = 0; j < stemRing; j++) {
+          const a = (j / stemRing) * Math.PI * 2;
+          const dx = Math.cos(a) * r, dz = Math.sin(a) * r;
+          const nl = Math.hypot(dx, dz) || 1;
+          mpts.push({
+            x: headX + 0.05 * hs + dx,
+            y: headY + pry + stemH * t,
+            z: dz,
+            nx: dx / nl, ny: 0.3, nz: dz / nl,
+          });
+        }
+        for (let j = 0; j < stemRing; j++) {
+          medges.push(ringBase + j, ringBase + (j + 1) % stemRing);
+          if (i > 0) medges.push(ringBase - stemRing + j, ringBase + j);
+        }
+      }
+    }
+
+    // Carved face outlines: closed glowing loops just in front of the surface.
+    // The pumpkin body's ridged surface bulges up to ~0.09*hs in front of the
+    // plain-ellipsoid surfX, and the front crest meridian runs right through
+    // the nose/grin center - so the loops sit on the ridged surface + 0.015
+    // to stay in front of the body mesh everywhere on the face.
+    const faceMeshPt = (y, z) => {
+      const ny = (y - headY) / pry, nz = z / prz;
+      const r2 = 1 - ny * ny - nz * nz;
+      const dx = r2 > 0 ? Math.sqrt(r2) : 0;
+      const u = Math.atan2(nz, dx);
+      const ridge = 1 + ridgeAmp * Math.cos(lobes * u);
+      mpts.push({
+        x: headX + dx * prx * ridge + 0.015, y, z,
+        nx: 1, ny: 0, nz: 0, f: 1, carve: true,
+      });
+    };
+    const faceLoop = (verts) => {
+      const base = mpts.length;
+      verts.forEach((v) => faceMeshPt(v[0], v[1]));
+      for (let k = 0; k < verts.length; k++) medges.push(base + k, base + (k + 1) % verts.length);
+    };
+
+    // Triangle eyes (apex up, like the point-cloud tapers)
+    for (const side of [-1, 1]) {
+      const ez = side * 0.28 * hs, ey = headY + 0.12 * hs;
+      const ew = 0.2 * hs, eh = 0.16 * hs;
+      faceLoop([[ey - eh / 2, ez - ew / 2], [ey - eh / 2, ez + ew / 2], [ey + eh / 2, ez]]);
+    }
+
+    // Triangle nose (apex down)
+    {
+      const ny2 = headY - 0.06 * hs, nw = 0.14 * hs, nh = 0.12 * hs;
+      faceLoop([[ny2 + nh / 2, -nw / 2], [ny2 + nh / 2, nw / 2], [ny2 - nh / 2, 0]]);
+    }
+
+    // Jagged grin: zigzag top edge + smooth smile bottom edge, closed band
+    {
+      const my = headY - 0.27 * hs, mw = 0.46 * hs, mh = 0.12 * hs;
+      const segs = 16, verts = [];
+      for (let k = 0; k <= segs; k++) {                  // top edge, left -> right
+        const t = k / segs, u = 2 * (t - 0.5);
+        const grin = 0.6 * mh * u * u;
+        const zig = Math.abs(Math.sin(t * Math.PI * 3)) * 0.5 * mh;
+        verts.push([my + grin + zig + mh / 2, (t - 0.5) * mw]);
+      }
+      for (let k = segs; k >= 0; k--) {                  // bottom edge, right -> left
+        const t = k / segs, u = 2 * (t - 0.5);
+        verts.push([my + 0.6 * mh * u * u - mh / 2, (t - 0.5) * mw]);
+      }
+      faceLoop(verts);
     }
   } else {
   // Head + cheeks
