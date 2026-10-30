@@ -174,11 +174,6 @@ pre .carve {
   pointer-events: auto;
 }
 
-/* Force help overlay to never block when hidden */
-#helpOverlay:not(.show) {
-  pointer-events: none !important;
-  /* Element stays in DOM with opacity:0 so animations work */
-}
 .modal {
   position: absolute;
   top: 50%;
@@ -886,15 +881,6 @@ body.setup .hint { visibility: hidden; }
     top: 5%;
     left: 50%;
     transform: translateX(-50%);
-  }
-  
-  /* Don't close modals on outside tap for mobile */
-  .overlay {
-    pointer-events: auto;
-  }
-  
-  .overlay.show {
-    opacity: 1;
   }
 }
 
