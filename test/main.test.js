@@ -24,9 +24,14 @@ async function waitReady(page) {
     const pre = document.getElementById('screen');
     return !!pre && pre.textContent.length > 0;
   }, null, { timeout: 15000 });
-  // Dismiss the first-run "CREATE YOUR RAT" modal if present.
-  const go = page.locator('#createGo');
-  if (await go.isVisible().catch(() => false)) await go.click();
+  // Dismiss the first-run "CREATE YOUR RAT" modal if it is actually open.
+  // On repeat visits (setupDone persisted) the overlay is closed with
+  // pointer-events: none, but its buttons still report as visible, so a
+  // blind click would hang on the hit-target check.
+  const overlayShown = await page
+    .evaluate(() => document.getElementById('createOverlay').classList.contains('show'))
+    .catch(() => false);
+  if (overlayShown) await page.locator('#createGo').click();
 }
 
 /** Open settings and switch to a tab via the app's own functions. */
@@ -90,6 +95,58 @@ test.describe('Settings', () => {
     ).toBeAttached();
     await openSettingsTab(page, 'ABOUT');
     await expect(page.locator('#setPanels')).toContainText('DIAGNOSTICS');
+  });
+
+  // Regression: the Halloween pumpkin-head branch only built the shaded point
+  // cloud (pts), never the wireframe mesh (mpts/medges), so in POLYGON mode
+  // the rat rendered headless. The pumpkin branch must contribute mesh
+  // geometry, and the carved face must actually paint on screen.
+  test('halloween pumpkin head renders in POLYGON mode', async ({ page }) => {
+    // isOctober is computed at page load; pin the clock to October so the
+    // test works in any month. waitReady's goto re-navigates, so the
+    // pinned date is in effect when the app scripts load.
+    await page.clock.setFixedTime(new Date('2026-10-15T12:00:00'));
+    await waitReady(page);
+
+    // Enable Halloween mode the same way the settings toggle does.
+    await page.evaluate(() => {
+      state.halloween = true;
+      applyHalloween();
+      buildRat(state.rat);
+      saveState();
+    });
+
+    // The pumpkin branch must contribute wireframe geometry, not just the
+    // face loops. Carved-face mesh points exist only in the pumpkin branch,
+    // and once halloween is on, the only non-carve mesh beyond the body's
+    // front extent (x > headX) is the ridged pumpkin surface + stem - legs,
+    // tail and body all stay behind bodyRx < headX.
+    await expect
+      .poll(() => page.evaluate(() => mpts.filter((p) => p.carve).length))
+      .toBeGreaterThan(0);
+    await expect
+      .poll(() => page.evaluate(() => {
+        const hx = 1.55 * state.rat.bodyLen + 0.35 * state.rat.headSize;
+        return mpts.filter((p) => p.x > hx && !p.carve).length;
+      }))
+      .toBeGreaterThan(0);
+
+    // Switch to POLYGON through the settings UI...
+    await openSettingsTab(page, 'STYLE');
+    await page.locator('#setPanels button', { hasText: 'POLYGON' }).first().click();
+    await expect.poll(() => page.evaluate(() => state.renderMode)).toBe('POLYGON');
+    // ...then close settings: the main screen only repaints while the
+    // settings overlay is closed, so carve spans can never appear on a
+    // frozen frame.
+    await page.keyboard.press('s');
+    await expect(page.locator('#setOverlay')).not.toHaveClass(/show/);
+
+    // Confirm the carved face actually paints with its negative-color
+    // span treatment on the live POLYGON-mode screen.
+    await expect
+      .poll(() => page.evaluate(() => document.querySelectorAll('#screen .carve').length))
+      .toBeGreaterThan(0);
+    await expect.poll(() => pageErrors.length).toBe(0);
   });
 });
 

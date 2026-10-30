@@ -22,6 +22,8 @@ npm run test:ui   # interactive UI mode
   automated clicks are unreliable. Tests navigate via
   `curTab` + `renderSettings()` in `evaluate`.
 - The first-run "CREATE YOUR RAT" modal is dismissed in `beforeEach`.
+- The main screen only repaints while the settings overlay is closed; assert
+  on live screen content only after closing settings.
 - Avoid `page.waitForTimeout`; use `expect.poll` and locator auto-waiting.
 
 ## Coverage
@@ -29,7 +31,7 @@ npm run test:ui   # interactive UI mode
 | Describe | Tests | What |
 |----------|-------|------|
 | Main page | 2 | hint bar, error-free idle render |
-| Settings | 4 | STYLE (composition/mode/resolution), POLYGON render, resolution realloc, RAT share + ABOUT diagnostics |
+| Settings | 5 | STYLE (composition/mode/resolution), POLYGON render, resolution realloc, RAT share + ABOUT diagnostics, halloween pumpkin head in POLYGON |
 | Maze game | 1 | opens, shows score |
 
 The uncaught page-error collector in `beforeEach` catches render-loop
