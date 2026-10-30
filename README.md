@@ -12,9 +12,4 @@ No libraries. No build. No canvas. Just characters and attitude.
 ## [▶ VIEW THE RAT](https://rileyio.github.io/ascii-rat/)
 
 *Sculpt it · spin it · party mode · get lost in the maze*
-
-<br>
-
-Full release history lives in [**CHANGELOG.md**](CHANGELOG.md) — or press `L` in the app for the Rat-Slop Log
-
 </div>
